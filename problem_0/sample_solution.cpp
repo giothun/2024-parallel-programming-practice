@@ -2,7 +2,8 @@
 #include <vector>
 #include <cstdint>
 #include <algorithm>
-
+#include <thread>
+#include <mutex>
 
 std::istream& operator>>(std::istream& in, __int128& value) {
     std::string s;
@@ -42,28 +43,103 @@ std::ostream& operator<<(std::ostream& out, __int128 value) {
     return out;
 }
 
-int main() {
-    __int128 n;
-    std::cin >> n;
-    if (n <= 1) {
-        return 0;
+__int128 sqrtInt128(__int128 x) {
+    if (x == 0 || x == 1) {
+        return x;
     }
 
-    std::vector<__int128> factors;
-    for (__int128 p = 2; p <= n / p; ++p) {
-        while (n % p == 0) {
-            factors.push_back(p);
-            n /= p;
+    __int128 low = 0, high = x;
+    __int128 result = 0;
+    while (low <= high) {
+        __int128 mid = low + (high - low) / 2;
+        __int128 sq = mid * mid;
+        if (sq == x) {
+            return mid;
+        } else if (sq < x) {
+            result = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
         }
     }
-    if (n > 1) {
-        factors.push_back(n);
+    return result;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    __int128 n;
+    std::cin >> n;
+
+    __int128 hwThreads = std::thread::hardware_concurrency();
+
+    __int128 nSqrt = sqrtInt128(n);
+
+    __int128 chunkSize = (nSqrt > 0 ? nSqrt / hwThreads : 1);
+
+    std::vector<std::vector<__int128>> partialFactors(hwThreads);
+    std::vector<std::thread> workers;
+    workers.reserve((size_t)hwThreads);
+
+    for (__int128 i = 0; i < hwThreads; ++i) {
+        __int128 start = 2 + i * chunkSize;
+        __int128 end   = start + chunkSize - 1;
+
+        if (i == hwThreads - 1) {
+            end = nSqrt;
+        }
+        
+        workers.emplace_back([&, i, start, end] {
+            __int128 localN = n;
+            for (__int128 p = start; p <= end && p <= localN / p; ++p) {
+                while (localN % p == 0) {
+                    partialFactors[i].push_back(p);
+                    localN /= p;
+                }
+            }
+        });
     }
 
-    for (const auto& factor : factors) {
-        std::cout << factor << ' ';
+    for (auto &t : workers) {
+        t.join();
     }
-    std::cout << '\n';
+
+    std::vector<__int128> allFactors;
+    for (auto &pf : partialFactors) {
+        allFactors.insert(allFactors.end(), pf.begin(), pf.end());
+    }
+    std::sort(allFactors.begin(), allFactors.end());
+
+    std::vector<__int128> distinctFactors;
+    distinctFactors.reserve(allFactors.size());
+    for (size_t i = 0; i < allFactors.size(); ++i) {
+        bool isNewPrimeFactor = true;
+        for (size_t j = 0; j < i; ++j) {
+            if (allFactors[i] == allFactors[j]) {
+                continue;
+            }
+            if (allFactors[i] % allFactors[j] == 0) {
+                isNewPrimeFactor = false;
+                break;
+            }
+        }
+        if (isNewPrimeFactor) {
+            distinctFactors.push_back(allFactors[i]);
+        }
+    }
+
+    for (__int128 i : distinctFactors) {
+        n /= i;
+    }
+
+    if (n > 1) {
+        distinctFactors.push_back(n);
+    }
+
+    for (__int128 i : distinctFactors) {
+        std::cout << i << ' ';
+    }
 
     return 0;
 }
